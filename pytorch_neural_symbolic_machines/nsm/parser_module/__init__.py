@@ -1,4 +1,4 @@
-from .agent import PGAgent
+from .dds_agent import PGAgent
 from .sketch_guided_agent import SketchGuidedAgent
 # from nsm.parser_module.content_based_agent import ContentBasedAgent
 

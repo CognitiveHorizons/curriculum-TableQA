@@ -154,7 +154,7 @@ class PGAgent(nn.Module):
         return traj_log_prob
 
     def sample(
-        self, environments, sample_num, use_cache=False,
+        self, environments, sample_categories, sample_num, use_cache=False,
         constraint_sketches: Dict = None,
     ):
         if sample_num == 0:
@@ -162,19 +162,32 @@ class PGAgent(nn.Module):
 
         if use_cache:
             # if already explored everything, then don't explore this environment anymore.
-            environments = [env for env in environments if not env.cache.is_full()]
+            env_indices = [j for j in range(len(environments)) if not environments[j].cache.is_full()]
+            environments = [environments[j] for j in env_indices]
+            sample_categories = [sample_categories[j] for j in env_indices]
+            # environments = [env for env in environments if not env.cache.is_full()]
 
         duplicated_envs = []
-        for env in environments:
+        duplicated_categories = []
+        
+        for env, category in zip(environments, sample_categories):
             for i in range(sample_num):
                 duplicated_envs.append(env.clone())
+                duplicated_categories.append(category)
 
         environments = duplicated_envs
+        sample_categories = duplicated_categories
+
         for env in environments:
             env.use_cache = use_cache
 
         completed_envs = []
+        completed_categories = []
+
+
         active_envs = environments
+        active_categories = sample_categories
+        
 
         env_context = [env.get_context() for env in environments]
         context_encoding = self.encode(env_context)
@@ -210,11 +223,14 @@ class PGAgent(nn.Module):
             new_active_env_pos = []
             new_active_envs = []
             has_completed_sample = False
-            for env_id, (env, action_t) in enumerate(zip(active_envs, sampled_action_t_id.tolist())):
+            new_active_categories = []
+            
+            for env_id, (env, action_t, category) in enumerate(zip(active_envs, sampled_action_t_id.tolist(), active_categories)):
                 action_rel_id = env.valid_actions.index(action_t)
                 ob_t, _, _, info = env.step(action_rel_id)
                 if env.done:
                     completed_envs.append((env, sample_probs[env_id].item()))
+                    completed_categories.append(category)
                     has_completed_sample = True
                 else:
                     if constraint_sketches is not None:
@@ -236,6 +252,7 @@ class PGAgent(nn.Module):
                         observations_t.append(ob_t)
                         new_active_env_pos.append(env_id)
                         new_active_envs.append(env)
+                        new_active_categories.append(category)
                     else:
                         # force recomputing source context encodings since this environment
                         # is finished
@@ -256,14 +273,17 @@ class PGAgent(nn.Module):
 
             observations_tm1 = observations_t
             active_envs = new_active_envs
+            active_categories = new_active_categories
 
         samples = []
+        final_categories = []
         for env_id, (env, prob) in enumerate(completed_envs):
             if not env.error:
                 traj = Trajectory.from_environment(env)
                 samples.append(Sample(trajectory=traj, prob=prob))
+                final_categories.append(completed_categories[env_id])
 
-        return samples
+        return samples, final_categories
 
     def new_beam_search(self, environments, beam_size, use_cache=False, return_list=False,
                         constraint_sketches=None, strict_constraint_on_sketches=False, force_sketch_coverage=False):

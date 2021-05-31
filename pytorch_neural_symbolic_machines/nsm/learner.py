@@ -38,6 +38,8 @@ class Learner(torch_mp.Process):
     def __init__(self, config: Dict, devices: Union[List[torch.device], torch.device], shared_program_cache: SharedProgramCache = None):
         super(Learner, self).__init__(daemon=True)
 
+
+
         self.train_queue = multiprocessing.Queue()
         self.checkpoint_queue = multiprocessing.Queue()
         self.config = config
@@ -62,7 +64,14 @@ class Learner(torch_mp.Process):
 
         agent_name = self.config.get('parser', 'vanilla')
         self.agent = get_parser_agent_by_name(agent_name).build(self.config, master='learner').to(self.devices[0]).train()
-
+        
+        model_path = os.path.join(self.config['work_dir'], 'model.best.bin')
+        if os.path.exists(model_path):
+            print("Loading from saved model.")
+            self.agent.load(model_path)
+        else:
+            print("No model found at %s." % model_path)
+        # checkload s= input('Check if model loaded.')
         use_trainable_sketch_predictor = self.config.get('use_trainable_sketch_predictor', False)
         if use_trainable_sketch_predictor:
             assert len(self.devices) > 1
@@ -130,6 +139,13 @@ class Learner(torch_mp.Process):
             bert_optimizer.zero_grad()
 
             train_samples, samples_info = self.train_queue.get()
+
+            print("len of train examples taken from queue: ", len(train_samples), len(samples_info))
+            sys.stdout.flush()
+
+            # get a sample from dev set(?)
+            # dev_samples, dev_samples_info = self.dev
+
             try:
                 queue_size = self.train_queue.qsize()
                 # print(f'[Learner] train_iter={train_iter} train queue size={queue_size}', file=sys.stderr)

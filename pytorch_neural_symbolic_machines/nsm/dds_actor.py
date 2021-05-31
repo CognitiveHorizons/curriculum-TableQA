@@ -4,19 +4,22 @@ import sys
 import time
 import json
 from pathlib import Path
+import math
+import random
+import numpy as np
 
 import torch.multiprocessing as torch_mp
 import multiprocessing
 
 from nsm import nn_util
 from nsm.parser_module import get_parser_agent_by_name
-from nsm.parser_module.agent import PGAgent
+from nsm.parser_module.dds_agent import PGAgent
 from nsm.parser_module.sketch_guided_agent import SketchGuidedAgent
 from nsm.consistency_utils import ConsistencyModel, QuestionSimilarityModel
 
 import torch
 
-from nsm.replay_buffer import ReplayBuffer
+from nsm.replay_buffer import DDSReplayBuffer
 from nsm.sketch.sketch import SketchManager
 from nsm.sketch.sketch_predictor import SketchPredictor, SketchPredictorProxy
 
@@ -33,13 +36,18 @@ class Actor(torch_mp.Process):
         self.actor_id = f'Actor_{actor_id}'
         self.example_ids = example_ids
         self.device = device
-
+        self.current_psi = None
+        self.categories = ['real', 'syn_agg', 'syn_sel', 'syn_rank']
         if not self.example_ids:
             raise RuntimeError(f'empty shard for Actor {self.actor_id}')
 
         self.model_path = None
         self.checkpoint_queue = None
-        self.train_queue = None
+        self.psi_queue = None
+        self.current_psi = None
+        self.train_queue   = None
+        # dict of queues
+        # self.queues = None
         self.shared_program_cache = shared_program_cache
         self.consistency_model = None
 
@@ -107,13 +115,135 @@ class Actor(torch_mp.Process):
                                                       log_file=os.path.join(self.config['work_dir'], f'consistency_model_actor_{self.actor_id}.log'),
                                                       debug=self.actor_id == 0)
 
-        self.replay_buffer = ReplayBuffer(self.agent, self.shared_program_cache)
+        self.replay_buffer = DDSReplayBuffer(self.agent, self.shared_program_cache)
 
         if self.config['load_saved_programs']:
             self.replay_buffer.load(self.environments, self.config['saved_program_file'])
             print(f'[Actor {self.actor_id}] loaded {self.replay_buffer.size} programs to buffer', file=sys.stderr)
 
         self.train()
+
+    # using it as a member function in this implementation since it needs to 
+    # access the actor class variable inside the yielding for loop.
+    # since yield suspends execution, updated member variable will be used.
+    def batch_iter_dds(self, data, batch_size, shuffle=False):
+        """
+        Takes in a the list of allotted environments and returns a batch to be pushed 
+        into the queue.
+
+        Args:
+            data: list of envs
+            batch_size: -
+            shuffle: -
+        """
+        
+        batch_num = math.ceil(len(data) / batch_size)
+        data_dict = {}
+
+        # push examples into corresponding categories
+        for categ in self.categories:
+            data_dict[categ] = []
+        
+        for d in data:
+            if d.d_type=="real":
+                # real_data_list.append(d)
+                data_dict['real'].append(d)
+            elif d.d_type =="syn":
+                # syn_data_list.append(d)
+                if d.op =="select":
+                    data_dict['syn_sel'].append(d)
+                    # if d.qtype == "1wc":
+                    #     data_dict["select-wc1"].append(d)
+                    # if d.qtype == "2wc":
+                    #     data_dict["select-wc2"].append(d)
+                    # if d.qtype == "3wc":
+                    #     data_dict["select-wc3"].append(d)
+                    # if d.qtype == "4wc":
+                    #     data_dict["select-wc4"].append(d)
+                if d.op == "sum":
+                    data_dict['syn_agg'].append(d)
+                    # if d.qtype == "1wc":
+                    #     data_dict["sum-wc1"].append(d)
+                    # if d.qtype == "2wc":
+                    #     data_dict["sum-wc2"].append(d)
+                    # if d.qtype == "3wc":
+                    #     data_dict["sum-wc3"].append(d)
+                    # if d.qtype == "4wc":
+                    #     data_dict["sum-wc4"].append(d)
+                if d.op == "average":
+                    data_dict['syn_agg'].append(d)
+                #     if d.qtype == "1wc":
+                #         data_dict["avg-wc1"].append(d)
+                #     if d.qtype == "2wc":
+                #         data_dict["avg-wc2"].append(d)
+                #     if d.qtype == "3wc":
+                #         data_dict["avg-wc3"].append(d)
+                #     if d.qtype == "4wc":
+                #         data_dict["avg-wc4"].append(d)
+                # if d.op == "minimum":
+                #     if d.qtype == "1wc":
+                #         data_dict["min-wc1"].append(d)
+                #     if d.qtype == "2wc":
+                #         data_dict["min-wc2"].append(d)
+                #     if d.qtype == "3wc":
+                #         data_dict["min-wc3"].append(d)
+                #     if d.qtype == "4wc":
+                #         data_dict["min-wc4"].append(d)
+                if d.op == "maximum":
+                    data_dict['syn_rank'].append(d)
+                    # if d.qtype == "1wc":
+                    #     data_dict["max-wc1"].append(d)
+                    # if d.qtype == "2wc":
+                    #     data_dict["max-wc2"].append(d)
+                    # if d.qtype == "3wc":
+                    #     data_dict["max-wc3"].append(d)
+                    # if d.qtype == "4wc":
+                    #     data_dict["max-wc4"].append(d)
+        
+        if shuffle:
+            for cat in self.categories:
+                np.random.shuffle(data_dict[cat])
+        
+        indices_dict = dict()
+        for cat in self.categories:
+            indices_dict[cat] = list(range(len(data_dict[cat])))
+        
+        for i in range(batch_num):
+            curr_probs = np.exp(self.current_psi)
+            curr_probs = curr_probs / np.sum(curr_probs)
+            print('sampling with probs: ', curr_probs)
+            sys.stdout.flush()
+            choices = list(np.random.choice(self.categories,
+                                            batch_size*8, p=curr_probs))
+            data_to_return = []
+            cats_in_batch = []
+            added=0
+            for c in choices:
+                #print(len(data_dict[c]))
+                if len(data_dict[c])==0:
+                    continue
+                else:
+                    #print(random.sample(data_dict[c],1))
+                    data_to_return.append(random.sample(data_dict[c], 1)[0])
+                    added+=1
+                    cats_in_batch.append(c)
+
+                if added==batch_size:
+                    break
+            
+            # examples = list(zip(data_to_return, cats_in_batch))
+            examples = (data_to_return, cats_in_batch)
+            # print("len of examples: ", len(examples), examples)
+            # sys.stdout.flush()
+            yield examples
+                    
+        #     indices = index_array[i * batch_size: (i + 1) * batch_size]
+        
+        # if syn_length ==0:
+        #     examples = [data[idx] for idx in indices]
+        # else:
+        #     examples = [real_data_list[idx] for idx in real_indices]+data_to_return
+            #print(examples)
 
 
     def train(self):
@@ -138,9 +268,11 @@ class Actor(torch_mp.Process):
             while True:
                 epoch_id += 1
                 epoch_start = time.time()
-                batch_iter = nn_util.batch_iter(self.environments, batch_size=self.config['batch_size'], shuffle=True)
-                for batch_id, batched_envs in enumerate(batch_iter):
-                    print('batched envs from batch_iter: ', batched_envs)
+                # batch_iter = nn_util.batch_iter(self.environments, batch_size=self.config['batch_size'], shuffle=True)
+                batch_iter_dds = self.batch_iter_dds(self.environments, batch_size=self.config['batch_size'], shuffle=True)
+                for batch_id, batched_envs_tuple in enumerate(batch_iter_dds):
+                    batched_envs, batch_categories = batched_envs_tuple
+                    
                     try:
                         # print(f'[Actor {self.actor_id}] epoch {epoch_id} batch {batch_id}', file=sys.stderr)
                         # perform sampling
@@ -203,8 +335,9 @@ class Actor(torch_mp.Process):
 
                         t1 = time.time()
                         if sample_method == 'sample':
-                            explore_samples = self.agent.sample(
+                            explore_samples, explore_categories = self.agent.sample(
                                 batched_envs,
+                                batch_categories,
                                 sample_num=config['n_explore_samples'],
                                 use_cache=config['use_cache'],
                                 constraint_sketches=constraint_sketches
@@ -272,8 +405,11 @@ class Actor(torch_mp.Process):
 
                                     print("======end sketch guided reply======", file=debug_file)
 
-                        replay_samples = self.replay_buffer.replay(
+                        # replay categories
+
+                        replay_samples, replay_categories = self.replay_buffer.replay(
                             batched_envs,
+                            batch_categories, # TODO: modify function
                             n_samples=config['n_replay_samples'],
                             use_top_k=config['use_top_k_replay_samples'],
                             replace=config['replay_sample_with_replacement'],
@@ -282,29 +418,42 @@ class Actor(torch_mp.Process):
                             constraint_sketches=replay_constraint_sketches,
                             debug_file=debug_file
                         )
+
                         t2 = time.time()
                         print(f'[Actor {self.actor_id}] epoch {epoch_id} batch {batch_id}, got {len(replay_samples)} replay samples (took {t2 - t1}s)',
                               file=sys.stderr)
 
                         samples_info = dict()
                         
+                        # categories_pushed = []
                         if method == 'mapo':
                             train_examples = []
-                            for sample in replay_samples:
+                            samples_info['category'] = []
+                            
+                            for sample, category in zip(replay_samples, replay_categories): # memory buffer
                                 sample_weight = self.replay_buffer.env_program_prob_sum_dict.get(sample.trajectory.environment_name, 0.)
                                 sample_weight = max(sample_weight, self.config['min_replay_samples_weight'])
 
                                 sample.weight = sample_weight * 1. / config['n_replay_samples']
                                 train_examples.append(sample)
+                                samples_info['category'].append(category)
 
-                            on_policy_samples = self.agent.sample(batched_envs,
+                            on_policy_samples, on_policy_categories = self.agent.sample(batched_envs, batch_categories,
                                                                   sample_num=config['n_policy_samples'],
                                                                   use_cache=False)
-                            non_replay_samples = [sample for sample in on_policy_samples
-                                                  if sample.trajectory.reward == 1. and not self.replay_buffer.contains(sample.trajectory)]
+                            
+                            non_replay_indices = [j for j in range(len(on_policy_samples))
+                                                    if on_policy_samples[j].trajectory.reward == 1 and not self.replay_buffer.contains(on_policy_samples[j].trajectory)]
+                            non_replay_samples = [on_policy_samples[j] for j in non_replay_indices]
+                            non_replay_categories = [on_policy_categories[j] for j in non_replay_indices]
+                            
+                            # non_replay_samples = [sample for sample in on_policy_samples
+                                                #   if sample.trajectory.reward == 1. and not self.replay_buffer.contains(sample.trajectory)]
+                            
+                            # create non_replay_catgories
                             self.replay_buffer.save_samples(non_replay_samples)
 
-                            for sample in non_replay_samples:
+                            for sample, category in zip(non_replay_samples, non_replay_categories): # outside memory
                                 if self.use_consistency_model and self.consistency_model.debug:
                                     print(f'>>>>>>>>>> non replay samples for {sample.trajectory.environment_name}', file=self.consistency_model.log_file)
                                     self.consistency_model.compute_consistency_score(sample.trajectory.environment_name, [sample])
@@ -320,7 +469,9 @@ class Actor(torch_mp.Process):
 
                                 sample.weight = sample_weight * 1. / config['n_policy_samples']
                                 train_examples.append(sample)
-
+                                samples_info['category'].append(category)
+                            # print('added non replay samples @460: ', len(train_examples))
+                            sys.stdout.flush()
                             n_clip = 0
                             for env in batched_envs:
                                 name = env.name
@@ -353,10 +504,16 @@ class Actor(torch_mp.Process):
                         else:
                             raise e
 
-                    print("len of train examples put in queue: ", len(train_examples))
-                    sys.stdout.flush()
+                    
+                    # samples_info['categories'] = batch_categories
+
+                    
                     if train_examples:
+                        print("train examples put in queue: ", train_examples, len(train_examples))
+                        assert len(train_examples) == len(samples_info['category'])
+                        sys.stdout.flush()
                         self.train_queue.put((train_examples, samples_info))
+                    # train_examples === decode_results (? samples infoopp;p)
                     else:
                         continue
 
@@ -405,7 +562,7 @@ class Actor(torch_mp.Process):
                     sys.stderr.flush()
 
     def load_environments(self, file_paths, example_ids=None):
-        from table.experiments import load_environments
+        from table.dds_experiments import load_environments
         envs = load_environments(file_paths,
                                  example_ids=example_ids,
                                  table_file=self.config['table_file'],
@@ -415,9 +572,13 @@ class Actor(torch_mp.Process):
         setattr(self, 'environments', envs)
 
     def check_and_load_new_model(self):
+        self.current_psi = self.psi_queue.get()
+
         t1 = time.time()
         while True:
             new_model_path = self.checkpoint_queue.get()
+            # queue's head is poppped.
+
             # if new_model_path == STOP_SIGNAL:
             #     print(f'[Actor {self.actor_id}] Exited', file=sys.stderr)
             #     sys.stdout.flush()

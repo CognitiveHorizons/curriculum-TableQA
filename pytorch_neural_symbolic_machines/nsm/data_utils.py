@@ -21,7 +21,7 @@ def load_jsonl(fn):
         for line in f:
             data = json.loads(line)
             result.append(data)
-
+            # one line represents one example.
     return result
 
 

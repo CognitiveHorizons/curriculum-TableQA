@@ -30,8 +30,8 @@ from pytorch_pretrained_bert import BertTokenizer
 
 import nsm.execution.worlds.wikisql
 import nsm.execution.worlds.wikitablequestions
-from nsm.actor import Actor
-from nsm.parser_module.agent import PGAgent
+from nsm.dds_actor import Actor
+from nsm.parser_module.dds_agent import PGAgent
 from nsm.embedding import EmbeddingModel
 from nsm.env_factory import QAProgrammingEnv
 from nsm.computer_factory import LispInterpreter
@@ -39,8 +39,8 @@ from nsm.data_utils import Vocab
 import nsm.execution.executor_factory as executor_factory
 import table.utils as utils
 from nsm.data_utils import load_jsonl
-from nsm.evaluator import Evaluator, Evaluation
-from nsm.learner import Learner
+from nsm.dds_evaluator import Evaluator, Evaluation
+from nsm.dds_learner import Learner
 
 import multiprocessing
 
@@ -54,8 +54,7 @@ from table_bert.dataset import Column, Table
 def annotate_example_for_bert(
     example: Dict, table: Dict,
     bert_tokenizer: BertTokenizer,
-    table_representation_method: Optional[str] = 'canonical'
-):
+    table_representation_method: Optional[str] = 'canonical'):
     e_id = example['id']
 
     # sub-tokenize the question
@@ -246,7 +245,7 @@ def load_environments(
     dataset = []
     if example_ids is not None:
         example_ids = set(example_ids)
-
+    # example is a single instance that is added to the dataset list.
     for fn in example_files:
         data = load_jsonl(fn)
         for example in data:
@@ -331,10 +330,10 @@ def create_environments(
 def create_environment(
         example_dict: Dict, table_kg: Dict,
         table_representation_method: str,
-        executor_type: str = 'wtq',
+        executor_type: str = 'wikisql',
         max_n_mem: int = 60, max_n_exp: int = 3,
-        bert_tokenizer: BertTokenizer = None,
-) -> QAProgrammingEnv:
+        bert_tokenizer: BertTokenizer = None) -> QAProgrammingEnv:
+    
     if executor_type == 'wtq':
         score_fn = utils.wtq_score
         process_answer_fn = lambda x: x
@@ -345,34 +344,49 @@ def create_environment(
         executor_fn = nsm.execution.worlds.wikisql.WikiSQLExecutor
     else:
         raise ValueError('Unknown executor {}'.format(executor_type))
-
+    
     executor = executor_fn(table_kg)
     api = executor.get_api()
     type_hierarchy = api['type_hierarchy']
     func_dict = api['func_dict']
     constant_dict = api['constant_dict']
-
     interpreter = LispInterpreter(
         type_hierarchy=type_hierarchy,
         max_mem=max_n_mem,
         max_n_exp=max_n_exp,
         assisted=True
     )
-
+    
     for v in func_dict.values():
         interpreter.add_function(**v)
-
+    
     interpreter.add_constant(
         value=table_kg['row_ents'],
         type='entity_list',
         name='all_rows')
-
+    
     if bert_tokenizer:
         example = annotate_example_for_bert(
             example_dict, table_kg, bert_tokenizer,
             table_representation_method=table_representation_method
         )
+    
+    # for examples with annotations 
+    op=None
+    qtype=None
+    d_type = None
+    
+    if "qtype" in example.keys():
+        qtype = example["qtype"]
 
+    if "op" in example.keys():
+        op = example["op"]
+
+    if "dtype" in example.keys():
+        d_type=example['dtype']
+
+    # example dict now has extra features of qtype, op and dtype
+    
     env = QAProgrammingEnv(
         question_annotation=example,
         kg=table_kg,
@@ -380,10 +394,66 @@ def create_environment(
         constants=constant_dict.values(),
         interpreter=interpreter,
         score_fn=score_fn,
-        name=example['id']
+        name=example['id'], dtype=d_type, op=op, qtype=qtype
     )
-
     return env
+
+# def create_environment(
+#         example_dict: Dict, table_kg: Dict,
+#         table_representation_method: str,
+#         executor_type: str = 'wtq',
+#         max_n_mem: int = 60, max_n_exp: int = 3,
+#         bert_tokenizer: BertTokenizer = None,
+# ) -> QAProgrammingEnv:
+#     if executor_type == 'wtq':
+#         score_fn = utils.wtq_score
+#         process_answer_fn = lambda x: x
+#         executor_fn = nsm.execution.worlds.wikitablequestions.WikiTableExecutor
+#     elif executor_type == 'wikisql':
+#         score_fn = utils.wikisql_score
+#         process_answer_fn = utils.wikisql_process_answer
+#         executor_fn = nsm.execution.worlds.wikisql.WikiSQLExecutor
+#     else:
+#         raise ValueError('Unknown executor {}'.format(executor_type))
+
+#     executor = executor_fn(table_kg)
+#     api = executor.get_api()
+#     type_hierarchy = api['type_hierarchy']
+#     func_dict = api['func_dict']
+#     constant_dict = api['constant_dict']
+
+#     interpreter = LispInterpreter(
+#         type_hierarchy=type_hierarchy,
+#         max_mem=max_n_mem,
+#         max_n_exp=max_n_exp,
+#         assisted=True
+#     )
+
+#     for v in func_dict.values():
+#         interpreter.add_function(**v)
+
+#     interpreter.add_constant(
+#         value=table_kg['row_ents'],
+#         type='entity_list',
+#         name='all_rows')
+
+#     if bert_tokenizer:
+#         example = annotate_example_for_bert(
+#             example_dict, table_kg, bert_tokenizer,
+#             table_representation_method=table_representation_method
+#         )
+
+#     env = QAProgrammingEnv(
+#         question_annotation=example,
+#         kg=table_kg,
+#         answer=process_answer_fn(example['answer']),
+#         constants=constant_dict.values(),
+#         interpreter=interpreter,
+#         score_fn=score_fn,
+#         name=example['id']
+#     )
+
+#     return env
 
 
 def load_program_cache(cache_dir: Path) -> Dict:
@@ -544,7 +614,7 @@ def distributed_train(args):
     shared_program_cache = SharedProgramCache()
 
     learner = Learner(
-        config={**config, **{'seed': seed}},
+        config={**config, **{'seed': seed}}, dev_file = config['dev_file'],
         shared_program_cache=shared_program_cache,
         devices=learner_devices
     )
@@ -864,3 +934,4 @@ if __name__ == '__main__':
     # run_example()
     main()
     # sanity_check()
+
