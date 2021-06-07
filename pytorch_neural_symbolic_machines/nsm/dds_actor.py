@@ -509,7 +509,7 @@ class Actor(torch_mp.Process):
 
                     
                     if train_examples:
-                        print("train examples put in queue: ", train_examples, len(train_examples))
+                        # print("train examples put in queue: ", train_examples, len(train_examples))
                         assert len(train_examples) == len(samples_info['category'])
                         sys.stdout.flush()
                         self.train_queue.put((train_examples, samples_info))

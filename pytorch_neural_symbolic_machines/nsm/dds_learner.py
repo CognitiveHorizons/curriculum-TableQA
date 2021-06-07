@@ -178,13 +178,13 @@ class Learner(torch_mp.Process):
             dev_batched_envs = next(dev_iter)
             
             dev_samples = model.decode_examples(dev_batched_envs, beam_size=self.config['beam_size'])
-            print(dev_samples)
+            # print(dev_samples)
             dev_samples = dev_samples[0]
             
             print('len dev batched envs: ', len(dev_batched_envs), len(dev_samples))
             print('train examples : ', len(train_samples))
-            print('train samples variable: ', train_samples)
-            print('dev samples variable', dev_samples)
+            # print('train samples variable: ', train_samples)
+            # print('dev samples variable', dev_samples)
 
             # exit()
             # how to get a sample from dev set(?)
