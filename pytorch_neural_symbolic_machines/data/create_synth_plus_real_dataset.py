@@ -48,12 +48,9 @@ def get_wtq_qg_data(group_id='', qg_file = '',filter=['select']):
             synth_data.append(row)
     return synth_data
 
+
 def get_wtq_qg_tagged_data(group_id='', qg_file=''):
-    folder_path = '/mnt/infonas/data/anshkhurana/table_qa/pytorch_neural_symbolic_machines/data/wikitable-ts_data/synthetic_data_tagged'
-    # if group_id != '':
-    #     fn = folder_path + 'tagged_synth_{}.tsv'.format(group_id)
-    # else:
-    
+    folder_path = '/mnt/infonas/data/anshkhurana/table_qa/pytorch_neural_symbolic_machines/data/wikitable-ts_data/synthetic_with_types'
     qg_file_x = qg_file.replace('_ppl_score','')
     fn = os.path.join(folder_path, qg_file_x.replace('.json','.tsv'))
 
@@ -154,7 +151,7 @@ def append_synth_data(group_id, train_synth_frac = 0.2, dev_synth_frac=0.0):
             sample_idx += list(np.random.choice(range(num_synth), train_synth_count%num_synth, replace=False))
         sampled_synth = [synth_data[i] for i in sample_idx]
         
-        # NAACL submission quick hacks
+        # ACL submission quick hacks
         # all_train = [header] + train_real_data + sampled_synth
         all_train = [header] + train_real_data + synth_data
 
@@ -267,10 +264,14 @@ def check_and_make_dir(dir_path):
         os.makedirs(dir_path)
 
 
+
+def create_synth_data(qg_file, base_dir, synth_tagged, dev_fraction, new_prefix):
+    pass
+
+
 # Combine synthetic and real dataset:
-def combine_synth_and_real(qg_file, base_dir, synth_tagged, 
-                            train_synth_frac = 0.2, dev_synth_frac=0.0,
-                            include_real=False, new_prefix=''):
+def combine_synth_and_real(qg_file, base_dir, complete_real_tagged, 
+                            train_synth_frac = 0.2, dev_synth_frac=0.0, new_prefix=''):
 
     group_id = 'g_' + qg_file.split('_g_')[1][0]
     qg_name = qg_file.split(group_id + '_')[1].replace('.json','')
@@ -294,13 +295,12 @@ def combine_synth_and_real(qg_file, base_dir, synth_tagged,
     # distutils.dir_util.copy_tree(base_dir, new_dir)
 
     # Appending synth to tagged data
-    with open(synth_tagged) as fp:
+    with open(complete_real_tagged) as fp:
         reader = csv.reader(fp, delimiter='\t')
         tag_header = reader.__next__()
         tagged_data = [row for row in reader]
+    
     num_tagged = len(tagged_data)
-
-
     synth_data, synth_tagged_data = align_tagged_and_genq(qg_file=qg_file)
 
     # removing context extension in synth data
@@ -343,25 +343,15 @@ def combine_synth_and_real(qg_file, base_dir, synth_tagged,
         #     sample_idx = list(range(num_synth))*(dev_synth_count/num_synth)
         #     sample_idx += np.random.choice(range(num_synth), dev_synth_count % num_synth, replace=False)
 
-
-        if not include_real:
-            train_synth_count = int(num_synth * (1-dev_synth_frac))
-            dev_synth_count = num_synth - train_synth_count
-        
         train_subset_synth = synth_data[:train_synth_count]
         dev_subset_synth = synth_data[train_synth_count:train_synth_count+dev_synth_count]
 
         if train_synth_count + dev_synth_count > len(synth_data):
             dev_subset_synth += synth_data[:train_synth_count + dev_synth_count - len(synth_data)]
 
-        if include_real:
-            all_train = [header] + train_real_data + train_subset_synth
-            all_dev = [header] + dev_real_data + dev_subset_synth
-            all_tagged = [tag_header] + tagged_data + synth_tagged_data[:train_synth_count+dev_synth_count]
-        else:
-            all_train = [header] + train_subset_synth
-            all_dev = [header] + dev_subset_synth
-            all_tagged = [tag_header] + synth_tagged_data[:train_synth_count+dev_synth_count]
+        all_train = [header] + train_real_data + train_subset_synth
+        all_dev = [header] + dev_real_data + dev_subset_synth
+        all_tagged = [tag_header] + tagged_data + synth_tagged_data[:train_synth_count+dev_synth_count]
 
         
         with open(new_dir + data_relative_path + 'random-split-'+si+'-train.tsv', 'w') as fp:
