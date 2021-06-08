@@ -79,12 +79,15 @@ Step 1: Prepare real .tagged file with `dtype` as 'real' and `op` as 'NA'.
 `python add_types.py --operation typify_real`
 
 Step 2: Prepare synthetic data and popuplate `dype` and `op` in .tagged files.
+
 `python add_types.py --operation typify_syn`
 
 Step 3: Combine the newly prepared data:
+
 `python gen_data.py`
 
 Step 4: Preprocess the combined data with modified preprocessing script.
+
 `bash preprocess.sh`
 
 ### Running the experiment
