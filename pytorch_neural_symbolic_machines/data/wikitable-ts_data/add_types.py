@@ -5,6 +5,7 @@ import numpy as np
 from shutil import copyfile
 import distutils
 from distutils import dir_util
+import argparse
 
 tagged_data_path = 'synthetic_data_tagged'
 synth_data_path = 'synthetic_data'
@@ -12,6 +13,9 @@ type_tagged_data_path = 'synthetic_with_types'
 real_data_path = 'compressed_raw_input/raw_input_folder'
 compete_real_tagged = '../downloaded/wikitable/raw_input/WikiTableQuestions/tagged/data/training.tagged'
 
+parser = argparse.ArgumentParser()
+
+parser.add_argument('--operation', type=str)
 
 def get_wtq_qg_data(fn):
     with open(fn) as fp:
@@ -189,7 +193,16 @@ def typify_syn_data(tagged_data_path, synth_data_path, type_tagged_data_path):
             writer.writerows(typed_rows)
 
 if __name__=='__main__':
-    # typify_syn_data(tagged_data_path, synth_data_path, type_tagged_data_path)
-    # backup_original(real_data_path)
-    # typify_real_data(real_data_path)
-    typify_complete_real_data(compete_real_tagged)
+    args = parser.parse_args()
+
+    if args.operation == 'backup_original':
+        backup_original(real_data_path)
+    elif args.operation == 'typify_syn':
+        typify_syn_data(tagged_data_path, synth_data_path, type_tagged_data_path)
+    elif args.operation == 'typify_real':
+        typify_complete_real_data(compete_real_tagged)
+    elif args.operation == 'typify_real_sets':
+        typify_real_data(real_data_path)
+    else:
+        raise NotImplementedError('%s is not valid.' % args.operation)
+    

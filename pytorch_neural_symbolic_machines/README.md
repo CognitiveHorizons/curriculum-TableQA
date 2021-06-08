@@ -69,6 +69,35 @@ python -m table.experiments.py \
 ### Training with pre-trained TaBERT models
 To be released.
 
+
+## DDS Training
+
+### Data Preparation:
+
+Step 1: Prepare real .tagged file with `dtype` as 'real' and `op` as 'NA'.
+
+`python add_types.py --operation typify_real`
+
+Step 2: Prepare synthetic data and popuplate `dype` and `op` in .tagged files.
+`python add_types.py --operation typify_syn`
+
+Step 3: Combine the newly prepared data:
+`python gen_data.py`
+
+Step 4: Preprocess the combined data with modified preprocessing script.
+`bash preprocess.sh`
+
+### Running the experiment
+
+Step 1: Setup desired config with paths to the newly created dataset. dds_g0.json provided for reference.
+
+Step 2: Run training:
+
+```
+OMP_NUM_THREADS=1 taskset -c 0-12  python -m   table.dds_experiments   train   --seed=0   --cuda   --work-dir=runs/dds_g0   --config=data/config/dds_g0.json |& tee  g0_dds.out
+```
+
+
 ### Acknowledgement
 
 We are grateful to [Chen Liang](https://crazydonkey200.github.io/), author of the original MAPO paper, for all the technical discussions.
