@@ -1,6 +1,6 @@
 import os
 import argparse
-from create_synth_plus_real_dataset import combine_synth_and_real, create_synth_data
+from create_synth_plus_real_dataset import combine_synth_and_real, create_synth_data, combine_all_synth_data
 
 parser = argparse.ArgumentParser()
 
@@ -21,10 +21,12 @@ if __name__=='__main__':
 
     # gq_file = os.path.join(args.gq_base, 'wtq_gen_quest_g_%d_col-header__beam-10.tsv' % args.group_id)
     # gq_file = os.path.join(
-    qg_file = 'wtq_gen_quest_g_%d_col-header__beam-10_ppl_score.json' % args.group_id
+    qg_file = 'wtq_gen_quest_g_%d_col-header__per_table_100.json' % args.group_id
+ 
     if args.include_real:
-        combine_synth_and_real(qg_file=qg_file, base_dir=args.base_dir, complete_real_tagged=args.comp_tagged,
-                            train_synth_frac=args.train_synth_frac, dev_synth_frac=args.dev_synth_frac,
+        print('creating combined data')
+        combine_all_synth_data(qg_file=qg_file, base_dir=args.base_dir, complete_real_tagged=args.comp_tagged,
+                            dev_synth_frac=args.dev_synth_frac,
                             new_prefix=args.new_prefix)
     else:
         create_synth_data(qg_file=qg_file, base_dir=args.base_dir, synth_tagged=args.synth_tagged,

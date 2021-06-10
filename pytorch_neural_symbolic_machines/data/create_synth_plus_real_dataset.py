@@ -28,7 +28,7 @@ def filter_check_sql(sql):
 
 def get_wtq_qg_data(group_id='', qg_file = '',filter=['select']):
     # folder_path = '/dccstor/cmv/saneem/nlqTable/irl_git/QG-tableQA/data/generated_question/'
-    folder_path = '/mnt/infonas/data/anshkhurana/table_qa/pytorch_neural_symbolic_machines/data/wikitable-ts_data/synthetic_data/'
+    folder_path = '/mnt/infonas/data/anshkhurana/table_qa/pytorch_neural_symbolic_machines/data/wikitable-ts_data/big_synthetic_data/'
     print(group_id, folder_path, qg_file)
     # if group_id != '':
     #     fn = folder_path + 'wtq_gen_quest_' + str(group_id) + '_.json'
@@ -50,9 +50,9 @@ def get_wtq_qg_data(group_id='', qg_file = '',filter=['select']):
 
 
 def get_wtq_qg_tagged_data(group_id='', qg_file=''):
-    folder_path = '/mnt/infonas/data/anshkhurana/table_qa/pytorch_neural_symbolic_machines/data/wikitable-ts_data/synthetic_with_types'
+    folder_path = '/mnt/infonas/data/anshkhurana/table_qa/pytorch_neural_symbolic_machines/data/wikitable-ts_data/big_synthetic_with_types'
     qg_file_x = qg_file.replace('_ppl_score','')
-    fn = os.path.join(folder_path, qg_file_x.replace('.json','.tsv'))
+    fn = os.path.join(folder_path, qg_file_x.replace('per_table_100.json','beam-10.tsv'))
 
     with open(fn) as fp:
         reader = csv.reader(fp, delimiter='\t')
@@ -269,6 +269,92 @@ def create_synth_data(qg_file, base_dir, synth_tagged, dev_fraction, new_prefix)
     pass
 
 
+def combine_all_synth_data(qg_file, base_dir, complete_real_tagged,
+                            dev_synth_frac=0.0, new_prefix=''):
+    
+    group_id = 'g_' + qg_file.split('_g_')[1][0]
+    qg_name = qg_file.split(group_id + '_')[1].replace('.json','')
+    # creating a new folder to store appended data
+    # base_dir = '/dccstor/cmv/saneem/nlqTable/irl_git/neural-symbolic-machines/data/wikitable/raw_input_folder/raw_input-LO_'+group_id
+    base_dir = base_dir + group_id 
+    # new_dir = '/dccstor/cmv/saneem/nlqTable/irl_git/neural-symbolic-machines/data/wikitable/raw_input_folder/raw_input-LO_'+group_id +\
+            # '_synth_tf-' + str(train_synth_frac) + '_df-' + str(dev_synth_frac) + '_ops-' + ops + '_nw-' + str(num_where) +'_qg-' + qg_name
+    new_dir = base_dir + ('_%s' % new_prefix) + '_synth_all-' + '_df-' + \
+                str(dev_synth_frac) + '_ops-' + ops + '_nw-' + str(num_where) + \
+                    '_qg-' + qg_name 
+
+    data_relative_path = '/WikiTableQuestions/data/' 
+
+    os.system('mkdir ' + new_dir)
+    os.system('cp -R ' + base_dir + '/. ' + new_dir)
+    
+    # TODO: replace with more pythonic vesion.     
+    # check_and_make_dir(new_dir)
+    # distutils.dir_util.copy_tree(base_dir, new_dir)
+
+    # Appending synth to tagged data
+    with open(complete_real_tagged) as fp:
+        reader = csv.reader(fp, delimiter='\t')
+        tag_header = reader.__next__()
+        tagged_data = [row for row in reader]
+    
+    num_tagged = len(tagged_data)
+    synth_data, synth_tagged_data = align_tagged_and_genq(qg_file=qg_file)
+
+    # removing context extension in synth data
+    for i,s in enumerate(synth_tagged_data):
+        context_list = s[2].split('/')
+        context_list[-1] = context_list[-1].replace('tsv', 'csv')
+        context = '/'.join(context_list[-3:])
+        synth_tagged_data[i][2] = context
+
+    for si in ['1','2','3','4','5']:
+        with open(base_dir + data_relative_path + 'random-split-'+si+'-train.tsv') as fp:
+            reader = csv.reader(fp, delimiter='\t')
+            header = reader.__next__()
+            train_real_data = [row for row in reader]    
+        num_train_real = len(train_real_data)
+
+        with open(base_dir + data_relative_path + 'random-split-'+si+'-dev.tsv') as fp:
+            reader = csv.reader(fp, delimiter='\t')
+            header = reader.__next__()
+            dev_real_data = [row for row in reader]    
+        num_dev_real = len(dev_real_data)
+
+        
+        num_synth = len(synth_data)
+        
+        if dev_synth_frac > 0:
+            train_synth_count =  int(num_synth * (1-dev_synth_frac))
+            dev_synth_count = int(num_synth * dev_synth_frac)
+        else:
+            train_synth_count = num_synth
+            dev_synth_count = 0
+        
+        train_subset_synth = synth_data[:train_synth_count]
+        dev_subset_synth = synth_data[train_synth_count:train_synth_count+dev_synth_count]
+        
+        all_train = [header] + train_real_data + train_subset_synth
+        all_dev = [header] + dev_real_data + dev_subset_synth
+
+        with open(new_dir + data_relative_path + 'random-split-'+si+'-train.tsv', 'w') as fp:
+            writer = csv.writer(fp, delimiter='\t')
+            writer.writerows(all_train)
+        with open(new_dir + data_relative_path + 'random-split-'+si+'-dev.tsv', 'w') as fp:
+            writer = csv.writer(fp, delimiter='\t')
+            writer.writerows(all_dev)
+
+
+    all_tagged = [tag_header] + tagged_data + synth_tagged_data[:train_synth_count+dev_synth_count]
+    with open(new_dir + '/WikiTableQuestions/tagged/data/training.tagged', 'w') as fp:
+        writer = csv.writer(fp, delimiter='\t')
+        writer.writerows(all_tagged)
+    
+    print('Tagged data appended')
+    print('Data created' + new_dir)
+
+                           
+
 # Combine synthetic and real dataset:
 def combine_synth_and_real(qg_file, base_dir, complete_real_tagged, 
                             train_synth_frac = 0.2, dev_synth_frac=0.0, new_prefix=''):
@@ -310,8 +396,6 @@ def combine_synth_and_real(qg_file, base_dir, complete_real_tagged,
         context = '/'.join(context_list[-3:])
         synth_tagged_data[i][2] = context
 
-    train_synth_count = 0
-    dev_synth_count = 0
     for si in ['1','2','3','4','5']:
         with open(base_dir + data_relative_path + 'random-split-'+si+'-train.tsv') as fp:
             reader = csv.reader(fp, delimiter='\t')
@@ -343,16 +427,19 @@ def combine_synth_and_real(qg_file, base_dir, complete_real_tagged,
         #     sample_idx = list(range(num_synth))*(dev_synth_count/num_synth)
         #     sample_idx += np.random.choice(range(num_synth), dev_synth_count % num_synth, replace=False)
 
+        # if all_synth:
+        #     train_subset_synth = synth_data[:train_synth_count]
+        #     dev_subset_synth = synth_data[train_synth_count:train_synth_count+dev_synth_count]
+
+        
         train_subset_synth = synth_data[:train_synth_count]
         dev_subset_synth = synth_data[train_synth_count:train_synth_count+dev_synth_count]
-
-        if train_synth_count + dev_synth_count > len(synth_data):
-            dev_subset_synth += synth_data[:train_synth_count + dev_synth_count - len(synth_data)]
+        
+        # if train_synth_count + dev_synth_count > len(synth_data):
+        #     dev_subset_synth += synth_data[:train_synth_count + dev_synth_count - len(synth_data)]
 
         all_train = [header] + train_real_data + train_subset_synth
-        all_dev = [header] + dev_real_data + dev_subset_synth
-        all_tagged = [tag_header] + tagged_data + synth_tagged_data[:train_synth_count+dev_synth_count]
-
+        all_dev = [header] + dev_real_data + dev_subset_synth        
         
         with open(new_dir + data_relative_path + 'random-split-'+si+'-train.tsv', 'w') as fp:
             writer = csv.writer(fp, delimiter='\t')
@@ -362,6 +449,7 @@ def combine_synth_and_real(qg_file, base_dir, complete_real_tagged,
             writer.writerows(all_dev)
 
 
+    all_tagged = [tag_header] + tagged_data + synth_tagged_data[:train_synth_count+dev_synth_count]
     with open(new_dir + '/WikiTableQuestions/tagged/data/training.tagged', 'w') as fp:
         writer = csv.writer(fp, delimiter='\t')
         writer.writerows(all_tagged)
