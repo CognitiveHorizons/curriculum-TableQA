@@ -1,5 +1,5 @@
 DATA_DIR=$ROOT"data/wikitable/"
-SUFFIX="LO_g_0_with_types_synth_tf-0.2_df-0.0_ops-all_nw-4_qg-col-header__beam-10_ppl_score"
+SUFFIX="LO_g_4_big_with_types_synth_all-_df-0.0_ops-all_nw-4_qg-col-header__per_table_100"
 SOURCE="/mnt/infonas/data/anshkhurana/table_qa/pytorch_neural_symbolic_machines/data/wikitable-ts_data/compressed_raw_input/raw_input_folder/raw_input-"
 DEST="/mnt/infonas/data/anshkhurana/table_qa/pytorch_neural_symbolic_machines/data/wikitable-ts_data/synthetic_preprocessed/"
 RAW_DATA="$SOURCE$SUFFIX"

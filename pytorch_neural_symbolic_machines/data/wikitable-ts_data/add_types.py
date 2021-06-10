@@ -7,9 +7,9 @@ import distutils
 from distutils import dir_util
 import argparse
 
-tagged_data_path = 'synthetic_data_tagged'
-synth_data_path = 'synthetic_data'
-type_tagged_data_path = 'synthetic_with_types'
+tagged_data_path = 'big_synthetic_data_tagged'
+synth_data_path = 'big_synthetic_data'
+type_tagged_data_path = 'big_synthetic_with_types'
 real_data_path = 'compressed_raw_input/raw_input_folder'
 compete_real_tagged = '../downloaded/wikitable/raw_input/WikiTableQuestions/tagged/data/training.tagged'
 
@@ -154,15 +154,15 @@ def typify_real_data(real_data_path):
 def typify_syn_data(tagged_data_path, synth_data_path, type_tagged_data_path):
 
     for group_id in ['0', '1', '2', '3', '4']:
-        tagged_file = os.path.join(tagged_data_path, 'wtq_gen_quest_g_%s_col-header__beam-10.tsv' % group_id)
-        synth_file = os.path.join(synth_data_path, 'wtq_gen_quest_g_%s_col-header__beam-10_ppl_score.json' % group_id)
+        tagged_file = os.path.join(tagged_data_path, 'wtq_gen_quest_g_%s_col-header__per_table_100.tsv' % group_id)
+        synth_file = os.path.join(synth_data_path, 'wtq_gen_quest_g_%s_col-header__per_table_100.json' % group_id)
         typed_file = os.path.join(type_tagged_data_path, 'wtq_gen_quest_g_%s_col-header__beam-10.tsv' % group_id)
 
 
         synth_data = get_wtq_qg_data(synth_file)
         print('synth examples: ', len(synth_data))
         synth_data = clean_up_questions(synth_data)
-
+        print(tagged_file)
         tagged_data = get_wtq_qg_tagged_data(tagged_file)    
         print('tagged examples: ', len(tagged_data))
 

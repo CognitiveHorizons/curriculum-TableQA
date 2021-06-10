@@ -150,14 +150,10 @@ class DDSReplayBuffer(object):
         for env_idx, env_name in enumerate(select_env_names):
             if env_name in self.trajectory_buffer:
                 trajs += self.trajectory_buffer[env_name]
-                print('@145 len trajs: ', len(trajs))
-                print('env idx', env_idx)
                 # if more than one trajectories for a particular example idx exists, 
                 # then we need to repeat the category that many times
                 traj_cats += [sample_categories[env_idx]] * len(self.trajectory_buffer[env_name])
                 # traj_cats.append(sample_categories[env_idx])
-                print('len traj_cats: ', len(traj_cats), traj_cats)
-                sys.stdout.flush()
 
         if len(trajs) == 0:
             return [], []
