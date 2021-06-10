@@ -94,6 +94,7 @@ class Learner(torch_mp.Process):
             self.agent.load(model_path)
         else:
             print("No model found at %s." % model_path)
+        sys.stdout.flush()
         # checkload s= input('Check if model loaded.')
         use_trainable_sketch_predictor = self.config.get('use_trainable_sketch_predictor', False)
         if use_trainable_sketch_predictor:
@@ -171,9 +172,6 @@ class Learner(torch_mp.Process):
 
 
             train_samples, samples_info = self.train_queue.get()
-            print("len of train examples taken from queue and len of categoriesß: ", len(train_samples), len(samples_info['category']))
-            sys.stdout.flush()
-
             sample_categories = samples_info['category']
             dev_batched_envs = next(dev_iter)
             
@@ -181,12 +179,7 @@ class Learner(torch_mp.Process):
             # print(dev_samples)
             dev_samples = dev_samples[0]
             
-            print('len dev batched envs: ', len(dev_batched_envs), len(dev_samples))
-            print('train examples : ', len(train_samples))
-            # print('train samples variable: ', train_samples)
-            # print('dev samples variable', dev_samples)
-
-            # exit()
+            
             # how to get a sample from dev set(?)
             # dev_samples, dev_samples_info = self.dev
             # inference on dev set(?)
@@ -219,21 +212,18 @@ class Learner(torch_mp.Process):
             grad_dev = [torch.flatten(g) for g in grad_dev_nested]
     
             grad_dev = torch.cat(grad_dev)
-            # grad_dev = torch.
 
-            print('dev gradient: ', len(grad_dev), grad_dev[0])
-            print('log pr dev: ', dev_log_prob)
+            # print('dev gradient: ', len(grad_dev), grad_dev[0])
+            # print('log pr dev: ', dev_log_prob)
 
             other_optimizer.zero_grad()
             bert_optimizer.zero_grad()
             
             # to save memory, for vertical tableBERT, we partition the training trajectories into small chunks
             # if isinstance(self.agent.encoder.bert_model, VerticalAttentionTableBert) and 'large' in self.agent.encoder.bert_model.config.base_model_name:
-            #     print('233 if')
             #     chunk_size = 5
             #     # dev_chunk_size = 5
             # else:
-            #     print('237 else')
             #     chunk_size = len(train_samples)
             #     dev_chunk_size = len(dev_samples)
                 
@@ -253,9 +243,6 @@ class Learner(torch_mp.Process):
                         loss_val, log_pr_chunk = self.forward_single(train_cat_chunk, train_iter, summary_writer, batch_type='train')
                         cum_loss += loss_val
                         grad_cat = [p.grad for p in other_params]
-                        
-                        print('train gradient cat: ', cat, len(grad_cat))
-                        print('log pr: ', log_pr_chunk)
                         reward = torch.dot(torch.tensor(grad_dev), torch.tensor(grad_cat))
                         self.current_psi[idx] = self.current_psi[idx] + self.config['dds_lr']*reward*log_pr_chunk
 
@@ -281,10 +268,8 @@ class Learner(torch_mp.Process):
                         other_optimizer.step()
                         other_optimizer.zero_grad()
                         # for every cat, fresh gradients
-                        print('train gradient cat: ', cat, len(grad_cat), grad_cat[0])
-                        print('log pr: ', log_pr)
-                        print(type(grad_cat), grad_cat, grad_cat.shape)
-                        print(type(grad_dev), grad_dev, grad_dev.shape)
+                        # print(type(grad_cat), grad_cat, grad_cat.shape)
+                        # print(type(grad_dev), grad_dev, grad_dev.shape)
                         sys.stdout.flush()
                         
                         # t1 = torch.FloatTensor(grad_dev)
@@ -369,7 +354,7 @@ class Learner(torch_mp.Process):
 
         trajectories = [sample.trajectory for sample in samples]
         # (batch_size)
-        print('trajectories', trajectories)
+        # print('trajectories', trajectories)
         batch_log_prob, meta_info = self.agent(trajectories, return_info=True)
     
         if batch_type=='train':
@@ -427,10 +412,10 @@ class Learner(torch_mp.Process):
         # loss = -batch_log_prob.sum() / max_batch_size
 
         loss.backward()
-        print('grad loss', loss.grad)
+        # print('grad loss', loss.grad)
         g_t = loss.grad
         d_p = dev_loss.grad
-        print('grad dev loss', dev_loss.grad)
+        # print('grad dev loss', dev_loss.grad)
 
         rew = torch.dot(g_t, d_p)
 
@@ -444,7 +429,6 @@ class Learner(torch_mp.Process):
 
         # update equation for psi
         self.current_psi = self.current_psi - self.config['dds_lr']*rew*log_pr_catwise
-        print('new psi:', self.current_psi)
         self.psi_queue.put(self.current_psi)
         # exit()
         loss_val = loss.item()
@@ -492,8 +476,6 @@ class Learner(torch_mp.Process):
 
             log_pr_catwise = torch.zeros((len(self.categories), 1))
             
-            print('batch_log_prob: ', batch_log_prob)
-            print('sample categories: ', sample_categories)
             for i, cat in enumerate(self.categories):
                 log_pr_catwise[i] = sum([batch_log_prob[j] for j in cat_indices[cat]])
         else:
