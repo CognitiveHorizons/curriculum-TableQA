@@ -160,8 +160,6 @@ class Learner(torch_mp.Process):
         cum_loss = cum_examples = 0.
         t1 = time.time()
 
-
-
         while train_iter < max_train_step:
             if 'cuda' in self.devices[0].type:
                 torch.cuda.set_device(self.devices[0])
@@ -173,21 +171,11 @@ class Learner(torch_mp.Process):
 
             train_samples, samples_info = self.train_queue.get()
             sample_categories = samples_info['category']
-            dev_batched_envs = next(dev_iter)
-            
+            dev_batched_envs = next(dev_iter) # get a batch of dev examples
+
+            # model inference on dev examples
             dev_samples = model.decode_examples(dev_batched_envs, beam_size=self.config['beam_size'])
-            # print(dev_samples)
-            dev_samples = dev_samples[0]
-            
-            
-            # how to get a sample from dev set(?)
-            # dev_samples, dev_samples_info = self.dev
-            # inference on dev set(?)
-            # decode_results = self.agent.decode_examples(self.dev_environments, beam_size=self.config['beam_size'], batch_size=32)
-            # eval_results = Evaluation.evaluate_decode_results(self.dev_environments, decode_results)
-
-            # compute gradient wrt eval results (?)
-
+            dev_samples = dev_samples[0] # list of list to list
 
             try:
                 queue_size = self.train_queue.qsize()
@@ -207,7 +195,8 @@ class Learner(torch_mp.Process):
 
             # repeat for getting dev grad
             dev_loss, dev_log_prob = self.forward_single(dev_samples, train_iter, summary_writer, batch_type='dev')
-            other_optimizer.step()
+            # other_optimizer.step() # should we not do this 
+
             grad_dev_nested = [p.grad for p in other_params]
             grad_dev = [torch.flatten(g) for g in grad_dev_nested]
     
@@ -287,9 +276,10 @@ class Learner(torch_mp.Process):
             # clip gradient
             grad_norm = torch.nn.utils.clip_grad_norm_(other_params, 5.)
 
-            if train_iter % gradient_accumulation_niter == 0:
-                other_optimizer.step()
 
+            # cumulative gradient backprop
+            if train_iter % gradient_accumulation_niter == 0:
+                # other_optimizer.step()
                 if train_iter > freeze_bert_for_niter:
                     bert_optimizer.step()
                 elif train_iter == freeze_bert_for_niter:
@@ -376,7 +366,6 @@ class Learner(torch_mp.Process):
         summary_writer.add_scalar('parser_loss', loss.item(), train_iter)
 
         loss.backward()
-#       
         loss_val = loss.item()
         return loss_val, batch_log_prob.mean()
 

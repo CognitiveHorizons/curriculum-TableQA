@@ -211,6 +211,7 @@ class Actor(torch_mp.Process):
         for i in range(batch_num):
             curr_probs = np.exp(self.current_psi)
             curr_probs = curr_probs / np.sum(curr_probs)
+            # curr_probs = np.array([1.0, 0.0, 0.0, 0.0])
             print('sampling with probs: ', curr_probs)
             sys.stdout.flush()
             choices = list(np.random.choice(self.categories,
@@ -219,6 +220,7 @@ class Actor(torch_mp.Process):
             cats_in_batch = []
             added=0
             for c in choices:
+                # c = 'real'
                 #print(len(data_dict[c]))
                 if len(data_dict[c])==0:
                     continue
@@ -237,15 +239,7 @@ class Actor(torch_mp.Process):
             # sys.stdout.flush()
             yield examples
                     
-        #     indices = index_array[i * batch_size: (i + 1) * batch_size]
-        
-        # if syn_length ==0:
-        #     examples = [data[idx] for idx in indices]
-        # else:
-        #     examples = [real_data_list[idx] for idx in real_indices]+data_to_return
-            #print(examples)
-
-
+     
     def train(self):
         config = self.config
         epoch_id = 0
